@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Music Tab Editor</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="tab-sidebar" aria-label="Saved songs">
+        <h2 class="tab-sidebar__title">Saved songs</h2>
+        <ul id="song-list" class="tab-list"></ul>
+        <p id="song-list-empty" class="tab-list-empty">No saved songs yet</p>
+      </aside>
+
+      <div class="main">
+        <header class="toolbar">
+          <h1>Music Tab</h1>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-new" class="btn btn-secondary">
+              New song
+            </button>
+            <button type="button" id="btn-open" class="btn btn-secondary">
+              Import file
+            </button>
+            <button type="button" id="btn-save" class="btn btn-primary">
+              Save song
+            </button>
+          </div>
+        </header>
+
+        <input
+          type="file"
+          id="file-input"
+          accept=".json,application/json"
+          hidden
+        />
+
+        <div class="song-meta">
+          <label class="field">
+            <span class="field__label">Song name</span>
+            <input
+              type="text"
+              id="song-name"
+              class="field__input"
+              placeholder="e.g. Greensleeves"
+              autocomplete="off"
+            />
+          </label>
+
+          <div class="section-controls">
+            <label class="field field--grow">
+              <span class="field__label">Section</span>
+              <select id="section-select" class="field__input"></select>
+            </label>
+            <label class="field">
+              <span class="field__label">Add section</span>
+              <div class="section-add">
+                <select id="section-type-add" class="field__input">
+                  <option value="intro">Intro</option>
+                  <option value="verse">Verse</option>
+                  <option value="chorus">Chorus</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="outro">Outro</option>
+                  <option value="score">Score</option>
+                </select>
+                <button type="button" id="btn-add-section" class="btn btn-secondary">
+                  Add
+                </button>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <p class="hint">
+          Single click: full · Double click: half · Click again: hollow
+        </p>
+
+        <details class="notation-rules" open>
+          <summary class="notation-rules__summary">Notation symbols</summary>
+          <ul id="notation-rules-list" class="notation-rules__list"></ul>
+        </details>
+
+        <div class="row-controls">
+          <button type="button" id="btn-add-row" class="btn btn-secondary btn-sm">
+            + Add row
+          </button>
+          <button type="button" id="btn-remove-row" class="btn btn-secondary btn-sm">
+            − Remove row
+          </button>
+          <span id="row-count-label" class="row-count-label"></span>
+        </div>
+
+        <main class="sheet-wrap">
+          <div id="sheet" class="sheet" aria-label="Hole grid"></div>
+        </main>
+
+        <footer class="status">
+          <span id="status-text">Ready</span>
+        </footer>
+      </div>
+    </div>
+
+    <div
+      id="symbol-picker"
+      class="symbol-picker"
+      hidden
+      role="menu"
+      aria-label="Row notation symbol"
+    ></div>
+
+    <div
+      id="viewer-panel"
+      class="viewer-panel"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="viewer-title"
+    >
+      <div class="viewer-panel__window">
+        <header class="viewer-panel__header">
+          <h2 id="viewer-title" class="viewer-panel__title">Song</h2>
+          <div class="viewer-panel__header-actions">
+            <div class="viewer-zoom" role="group" aria-label="Zoom">
+              <button
+                type="button"
+                id="viewer-zoom-out"
+                class="btn btn-secondary btn-sm"
+                aria-label="Zoom out"
+                title="Zoom out"
+              >
+                −
+              </button>
+              <span id="viewer-zoom-label" class="viewer-zoom__label">100%</span>
+              <button
+                type="button"
+                id="viewer-zoom-in"
+                class="btn btn-secondary btn-sm"
+                aria-label="Zoom in"
+                title="Zoom in"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                id="viewer-zoom-reset"
+                class="btn btn-secondary btn-sm"
+                title="Reset zoom"
+              >
+                Reset
+              </button>
+            </div>
+            <button
+              type="button"
+              id="viewer-btn-edit"
+              class="btn btn-secondary btn-sm"
+            >
+              Edit in editor
+            </button>
+            <button
+              type="button"
+              id="viewer-btn-close"
+              class="btn btn-secondary btn-sm viewer-panel__close"
+              aria-label="Close viewer"
+            >
+              Close
+            </button>
+          </div>
+        </header>
+        <div id="viewer-panel-body" class="viewer-panel__body viewer-panel__body--single">
+          <div class="viewer-panel__controls">
+            <label class="field">
+              <span class="field__label">View as</span>
+              <select id="viewer-mode-select" class="field__input">
+                <option value="all">All sections together</option>
+                <option value="single">One section at a time</option>
+              </select>
+            </label>
+            <label id="viewer-section-field" class="field">
+              <span class="field__label">Section</span>
+              <select id="viewer-section-select" class="field__input"></select>
+            </label>
+          </div>
+          <div id="viewer-zoom-host" class="viewer-zoom-host">
+            <div
+              id="viewer-all"
+              class="viewer-all"
+              hidden
+              aria-label="Full song read-only view"
+            ></div>
+            <div
+              id="viewer-sheet"
+              class="sheet sheet--readonly"
+              aria-label="Read-only tab view"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <dialog id="blow-longer-dialog" class="blow-longer-dialog">
+      <form method="dialog" class="blow-longer-dialog__form">
+        <h2 class="blow-longer-dialog__title">Blow longer</h2>
+        <p class="blow-longer-dialog__hint">
+          Pick the start row (dash), then the end row (line runs down to there).
+        </p>
+        <div class="blow-longer-dialog__fields">
+          <label class="field">
+            <span class="field__label">From row</span>
+            <select id="blow-longer-start" class="field__input"></select>
+          </label>
+          <label class="field">
+            <span class="field__label">To row</span>
+            <select id="blow-longer-end" class="field__input"></select>
+          </label>
+        </div>
+        <div
+          id="blow-longer-preview"
+          class="blow-longer-preview"
+          aria-live="polite"
+        ></div>
+        <div class="blow-longer-dialog__actions">
+          <button type="submit" value="cancel" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button
+            type="button"
+            id="blow-longer-remove"
+            class="btn btn-secondary"
+          >
+            Remove
+          </button>
+          <button type="submit" value="apply" class="btn btn-primary">
+            Apply
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="delete-dialog" class="confirm-dialog">
+      <form method="dialog" class="confirm-dialog__form">
+        <p id="delete-dialog-message" class="confirm-dialog__message"></p>
+        <div class="confirm-dialog__actions">
+          <button type="submit" value="cancel" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            value="confirm"
+            class="btn btn-danger"
+            id="delete-dialog-confirm"
+          >
+            Delete
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>
