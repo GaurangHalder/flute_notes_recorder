@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Music Tab Editor</title>
-    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/styles.css"/>
   </head>
   <body>
     <div class="app">
@@ -13,7 +13,7 @@
         <ul id="song-list" class="tab-list"></ul>
         <p id="song-list-empty" class="tab-list-empty">No saved songs yet</p>
       </aside>
-
+      
       <div class="main">
         <header class="toolbar">
           <h1>Music Tab</h1>
@@ -24,8 +24,11 @@
             <button type="button" id="btn-open" class="btn btn-secondary">
               Import file
             </button>
-            <button type="button" id="btn-save" class="btn btn-primary">
-              Save song
+            <button type="button" id="btn-save-local" class="btn btn-primary">
+              Save locally
+            </button>
+            <button type="button" id="btn-save-json" class="btn btn-secondary">
+              Export JSON
             </button>
           </div>
         </header>
@@ -70,11 +73,45 @@
                 </button>
               </div>
             </label>
+            <label class="field">
+              <span class="field__label">Copy / paste section</span>
+              <div class="section-add">
+                <button
+                  type="button"
+                  id="btn-copy-section"
+                  class="btn btn-secondary btn-sm"
+                  title="Copy the current section’s tab"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  id="btn-paste-section"
+                  class="btn btn-secondary btn-sm"
+                  disabled
+                  title="Paste copied tab as a new section (uses Add section type)"
+                >
+                  Paste
+                </button>
+              </div>
+            </label>
+            <label class="field">
+              <span class="field__label">Remove section</span>
+              <button
+                type="button"
+                id="btn-delete-section"
+                class="btn btn-danger btn-sm"
+                disabled
+              >
+                Delete
+              </button>
+            </label>
           </div>
         </div>
 
         <p class="hint">
-          Single click: full · Double click: half · Click again: hollow
+          Single click: full · Double click: half · Click again: hollow ·
+          Copy / Paste section duplicates the current tab (pick type under Add section before Paste)
         </p>
 
         <details class="notation-rules" open>

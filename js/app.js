@@ -4,6 +4,7 @@ const COLS = 6;
 const DOUBLE_CLICK_MS = 160;
 const STORAGE_KEY = "musicTabLibrary";
 const FORMAT_VERSION = 2;
+const DEFAULT_SONG_NAME = "Untitled song";
 
 /** @type {number[][]} */
 let grid = createEmptyGrid(DEFAULT_ROWS);
@@ -38,8 +39,12 @@ const sectionTypeAddEl = document.getElementById("section-type-add");
 const rowCountLabelEl = document.getElementById("row-count-label");
 const btnNew = document.getElementById("btn-new");
 const btnOpen = document.getElementById("btn-open");
-const btnSave = document.getElementById("btn-save");
+const btnSaveLocal = document.getElementById("btn-save-local");
+const btnSaveJson = document.getElementById("btn-save-json");
 const btnAddSection = document.getElementById("btn-add-section");
+const btnCopySection = document.getElementById("btn-copy-section");
+const btnPasteSection = document.getElementById("btn-paste-section");
+const btnDeleteSection = document.getElementById("btn-delete-section");
 const btnAddRow = document.getElementById("btn-add-row");
 const btnRemoveRow = document.getElementById("btn-remove-row");
 const fileInput = document.getElementById("file-input");
@@ -86,7 +91,6 @@ const VIEWER_ZOOM_DEFAULT = 1;
 let viewerZoom = VIEWER_ZOOM_DEFAULT;
 
 /** @type {string | null} */
-let pendingDeleteSongId = null;
 
 /** @type {Map<string, HTMLButtonElement>} */
 const holeButtons = new Map();
@@ -112,7 +116,7 @@ const NOTATION_SYMBOLS = [
   {
     id: "blow_longer",
     glyph: "┌",
-    label: "Blow longer — dash on start row, line down to end row",
+    label: "Blow longer with quick lifts — dash on start row, line down to end row",
     kind: "blow_longer_range",
   },
   {
@@ -144,6 +148,10 @@ let blowLongerEditSpanIndex = null;
 /** @type {number | null} */
 let blowLongerDialogAnchorRow = null;
 
+/** Copied section tab data (grid, symbols, blow-longer). */
+/** @type {{ rows: number, grid: number[][], rowSymbols: string[], blowLonger: { start: number, end: number }[] } | null} */
+let sectionClipboard = null;
+
 function createEmptyGrid(rows) {
   return Array.from({ length: rows }, () => Array(COLS).fill(0));
 }
@@ -158,6 +166,39 @@ function getNotationSymbol(id) {
 
 function isSimpleRowSymbolId(id) {
   return Boolean(id) && id !== "blow_longer" && notationSymbolById.has(id);
+}
+
+/** Default row symbol when the notation slot beside the holes is left blank on save. */
+const DEFAULT_BLANK_ROW_SYMBOL_ID = "short_hold";
+
+function fillBlankRowSymbols(symbols, rows, spans = []) {
+  return Array.from({ length: rows }, (_, i) => {
+    if (getBlowLongerRole(i, spans)) return "";
+    const id = symbols[i];
+    return isSimpleRowSymbolId(id) ? id : DEFAULT_BLANK_ROW_SYMBOL_ID;
+  });
+}
+
+function applyDefaultRowSymbolsToSection(section) {
+  const rows = section.rows ?? section.grid?.length ?? 0;
+  if (!rows) return section;
+
+  const spans = normalizeBlowLongerSpans(section, rows);
+  const symbols = normalizeRowSymbols(section, rows);
+  section.rowSymbols = fillBlankRowSymbols(symbols, rows, spans);
+  return section;
+}
+
+function applyDefaultRowSymbolsToSong(song) {
+  for (const section of song.sections) {
+    applyDefaultRowSymbolsToSection(section);
+  }
+
+  const current = song.sections.find((s) => s.id === activeSectionId);
+  if (current) {
+    rowSymbols = current.rowSymbols.slice(0, rowCount);
+    buildSheet();
+  }
 }
 
 function getBlowLongerRole(rowIndex, spans = blowLongerSpans) {
@@ -772,6 +813,23 @@ function sanitizeFilename(name) {
   return base.slice(0, 80) || "song";
 }
 
+function resolveSongName(raw = songNameEl.value) {
+  const trimmed = String(raw ?? "").trim();
+  return trimmed || DEFAULT_SONG_NAME;
+}
+
+/** Apply song name from the field; fill the input when it was left blank. */
+function applySongNameFromField({ fillInput = false } = {}) {
+  const name = resolveSongName();
+  if (fillInput && !songNameEl.value.trim()) {
+    songNameEl.value = name;
+  }
+  if (activeSong) {
+    activeSong.name = name;
+  }
+  return name;
+}
+
 function sectionDisplayLabel(section) {
   if (section.label) return section.label;
   if (section.type === "verse" && section.number) {
@@ -805,13 +863,90 @@ function createSection(type, sections) {
   };
 }
 
+function cloneSectionTabData(section) {
+  const rows = section.rows ?? section.grid.length;
+  return {
+    rows,
+    grid: section.grid.map((row) => [...row]),
+    rowSymbols: normalizeRowSymbols(section, rows),
+    blowLonger: normalizeBlowLongerSpans(section, rows).map((span) => ({ ...span })),
+  };
+}
+
+function createSectionFromTabData(type, sections, data) {
+  const number = type === "verse" ? nextVerseNumber(sections) : null;
+  const label =
+    type === "verse"
+      ? `Verse ${number}`
+      : SECTION_TYPE_LABELS[type] || type;
+
+  return {
+    id: generateId("section"),
+    type,
+    number,
+    label,
+    rows: data.rows,
+    grid: data.grid.map((row) => [...row]),
+    rowSymbols: data.rowSymbols.slice(),
+    blowLonger: data.blowLonger.map((span) => ({ ...span })),
+  };
+}
+
+function updateSectionPasteUi() {
+  btnPasteSection.disabled = !sectionClipboard;
+}
+
+function copySection() {
+  if (!activeSong) {
+    setStatus("No song open", "error");
+    return;
+  }
+
+  persistCurrentSectionToSong();
+  const section = getActiveSection();
+  if (!section) return;
+
+  sectionClipboard = cloneSectionTabData(section);
+  updateSectionPasteUi();
+  setStatus(`Copied ${sectionDisplayLabel(section)}`, "ok");
+}
+
+function pasteSection() {
+  if (!sectionClipboard) {
+    setStatus("Copy a section first", "error");
+    return;
+  }
+
+  if (!activeSong) {
+    newSong();
+  }
+
+  persistCurrentSectionToSong();
+
+  const type = sectionTypeAddEl.value;
+  const section = createSectionFromTabData(
+    type,
+    activeSong.sections,
+    sectionClipboard
+  );
+
+  const index = activeSong.sections.findIndex((s) => s.id === activeSectionId);
+  const insertAt = index >= 0 ? index + 1 : activeSong.sections.length;
+  activeSong.sections.splice(insertAt, 0, section);
+
+  loadSectionIntoEditor(section);
+  renderSectionSelect();
+  renderSongList();
+  setStatus(`Pasted as ${sectionDisplayLabel(section)}`, "ok");
+}
+
 function createEmptySong(name) {
   const now = new Date().toISOString();
   const intro = createSection("intro", []);
   return {
     version: FORMAT_VERSION,
     id: generateId("song"),
-    name: name || "Untitled song",
+    name: name || DEFAULT_SONG_NAME,
     createdAt: now,
     updatedAt: now,
     columns: COLS,
@@ -872,7 +1007,7 @@ function normalizeSong(raw, fallbackName) {
     return {
       version: FORMAT_VERSION,
       id: raw.id || generateId("song"),
-      name: raw.name || fallbackName || "Untitled song",
+      name: raw.name || fallbackName || DEFAULT_SONG_NAME,
       createdAt: raw.createdAt || new Date().toISOString(),
       updatedAt: raw.updatedAt || new Date().toISOString(),
       columns: COLS,
@@ -885,7 +1020,7 @@ function normalizeSong(raw, fallbackName) {
     return {
       version: FORMAT_VERSION,
       id: raw.id || generateId("song"),
-      name: raw.name || fallbackName || "Untitled song",
+      name: raw.name || fallbackName || DEFAULT_SONG_NAME,
       createdAt: raw.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       columns: COLS,
@@ -940,9 +1075,7 @@ function persistCurrentSectionToSong() {
   syncRowSymbolsLength(rowCount);
   section.rowSymbols = rowSymbols.slice(0, rowCount);
   section.blowLonger = blowLongerSpans.map((span) => ({ ...span }));
-  if (songNameEl.value.trim()) {
-    activeSong.name = songNameEl.value.trim();
-  }
+  applySongNameFromField();
   activeSong.updatedAt = new Date().toISOString();
 }
 
@@ -962,10 +1095,12 @@ function renderSectionSelect() {
 
   if (!activeSong || activeSong.sections.length === 0) {
     sectionSelectEl.disabled = true;
+    btnDeleteSection.disabled = true;
     return;
   }
 
   sectionSelectEl.disabled = false;
+  btnDeleteSection.disabled = activeSong.sections.length <= 1;
 
   for (const section of activeSong.sections) {
     const option = document.createElement("option");
@@ -1197,9 +1332,8 @@ function openSongViewerById(id) {
   openSongViewer(song);
 }
 
-async function confirmDeleteSong(song) {
-  deleteDialogMessageEl.textContent = `Delete “${song.name}” from saved songs? This cannot be undone.`;
-  pendingDeleteSongId = song.id;
+async function confirmDelete(message) {
+  deleteDialogMessageEl.textContent = message;
   deleteDialogEl.returnValue = "";
   deleteDialogEl.showModal();
   const result = await new Promise((resolve) => {
@@ -1209,8 +1343,13 @@ async function confirmDeleteSong(song) {
       { once: true }
     );
   });
-  pendingDeleteSongId = null;
   return result === "confirm";
+}
+
+async function confirmDeleteSong(song) {
+  return confirmDelete(
+    `Delete “${song.name}” from saved songs? This cannot be undone.`
+  );
 }
 
 async function deleteSongById(id) {
@@ -1374,6 +1513,41 @@ function addSection() {
   setStatus(`Added ${sectionDisplayLabel(section)}`, "ok");
 }
 
+async function deleteSection() {
+  if (!activeSong) {
+    setStatus("No song open", "error");
+    return;
+  }
+
+  if (activeSong.sections.length <= 1) {
+    setStatus("Need at least one section", "error");
+    return;
+  }
+
+  const section = getActiveSection();
+  if (!section) return;
+
+  const label = sectionDisplayLabel(section);
+  const confirmed = await confirmDelete(
+    `Delete “${label}” from this song? This cannot be undone.`
+  );
+  if (!confirmed) return;
+
+  persistCurrentSectionToSong();
+
+  const index = activeSong.sections.findIndex((s) => s.id === section.id);
+  if (index === -1) return;
+
+  activeSong.sections.splice(index, 1);
+
+  const next =
+    activeSong.sections[Math.min(index, activeSong.sections.length - 1)];
+  loadSectionIntoEditor(next);
+  renderSectionSelect();
+  renderSongList();
+  setStatus(`Deleted ${label}`, "ok");
+}
+
 function addRow() {
   grid.push(Array(COLS).fill(0));
   rowCount += 1;
@@ -1429,6 +1603,8 @@ function buildSongExportPayload() {
   persistCurrentSectionToSong();
   if (!activeSong) return null;
 
+  applyDefaultRowSymbolsToSong(activeSong);
+
   return {
     version: FORMAT_VERSION,
     id: activeSong.id,
@@ -1449,24 +1625,26 @@ function buildSongExportPayload() {
   };
 }
 
-function saveSong() {
+function prepareSongPayload() {
   if (!activeSong) {
-    activeSong = createEmptySong(songNameEl.value.trim() || "Untitled song");
+    activeSong = createEmptySong(resolveSongName());
     activeSongId = activeSong.id;
     activeSectionId = activeSong.sections[0].id;
     persistCurrentSectionToSong();
   }
 
-  const name = songNameEl.value.trim();
-  if (name) activeSong.name = name;
-  else if (!activeSong.name) activeSong.name = "Untitled song";
+  applySongNameFromField({ fillInput: true });
 
   if (!validateSong(activeSong)) {
     setStatus("Cannot save: invalid grid in one or more sections", "error");
-    return;
+    return null;
   }
 
-  const payload = buildSongExportPayload();
+  return buildSongExportPayload();
+}
+
+function saveSongLocally() {
+  const payload = prepareSongPayload();
   if (!payload) return;
 
   const songs = loadLibrary();
@@ -1489,6 +1667,15 @@ function saveSong() {
 
   persistLibrary(songs);
   renderSongList();
+  setStatus(
+    `Saved locally: “${payload.name}” (${payload.sections.length} sections)`,
+    "ok"
+  );
+}
+
+function exportSongAsJson() {
+  const payload = prepareSongPayload();
+  if (!payload) return;
 
   const now = new Date();
   const filename = `${sanitizeFilename(payload.name)}-${formatFilenameDate(now)}.json`;
@@ -1501,7 +1688,7 @@ function saveSong() {
   link.click();
   URL.revokeObjectURL(url);
 
-  setStatus(`Saved song “${payload.name}” (${payload.sections.length} sections)`, "ok");
+  setStatus(`Exported “${payload.name}” as JSON`, "ok");
 }
 
 function importSongFromPayload(payload, fallbackName) {
@@ -1550,8 +1737,12 @@ function importFromFile(file) {
 
 btnNew.addEventListener("click", newSong);
 btnOpen.addEventListener("click", openFile);
-btnSave.addEventListener("click", saveSong);
+btnSaveLocal.addEventListener("click", saveSongLocally);
+btnSaveJson.addEventListener("click", exportSongAsJson);
 btnAddSection.addEventListener("click", addSection);
+btnCopySection.addEventListener("click", copySection);
+btnPasteSection.addEventListener("click", pasteSection);
+btnDeleteSection.addEventListener("click", deleteSection);
 btnAddRow.addEventListener("click", addRow);
 btnRemoveRow.addEventListener("click", removeRow);
 
@@ -1559,8 +1750,14 @@ sectionSelectEl.addEventListener("change", () => {
   switchSection(sectionSelectEl.value);
 });
 
+songNameEl.addEventListener("blur", () => {
+  applySongNameFromField({ fillInput: true });
+  if (activeSong) renderSongList();
+});
+
 songNameEl.addEventListener("change", () => {
-  if (activeSong) activeSong.name = songNameEl.value.trim() || activeSong.name;
+  applySongNameFromField({ fillInput: true });
+  if (activeSong) renderSongList();
 });
 
 fileInput.addEventListener("change", () => {
@@ -1661,5 +1858,6 @@ buildSymbolPickerMenu();
 renderNotationRulesList();
 buildSheet();
 renderSongList();
+updateSectionPasteUi();
 applyViewerZoom();
 setStatus("Ready");
