@@ -112,3 +112,5 @@ Example export `greensleeves-20260601-143022.json`:
 - `blowLonger` — zero or more inclusive row ranges (`start` / `end` are 0-based indices).
 
 Older **v1** files with a single top-level `grid` import as a song with one **Score** section (empty symbols and blow-longer spans).
+
+I have added 2 .json files that you can directly download and import to get a look of how a song tabs should look like.
